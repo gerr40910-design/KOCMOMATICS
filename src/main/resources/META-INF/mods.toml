@@ -1,0 +1,11 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="kocmomatics"
+version="1.0"
+displayName="KOCMOMATICS"
+description='''
+KOCMOMATICS Minecraft integration.
+'''
