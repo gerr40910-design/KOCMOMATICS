@@ -8,6 +8,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
 import android.text.Editable;
 import android.text.TextWatcher;
 
@@ -143,7 +144,9 @@ public class MainActivity extends Activity {
             minecraftStatus.setText(
                     "Minecraft: введи IP компьютера"
             );
-            connectionStatus.setText("Компьютер: не проверен");
+            connectionStatus.setText(
+                    "Компьютер: не проверен"
+            );
             return;
         }
 
@@ -165,14 +168,15 @@ public class MainActivity extends Activity {
 
             if ("in_world".equals(status)) {
                 updateMinecraftStatus("Minecraft: В мире");
-                updateConnectionStatus("Компьютер: подключён");
             } else if ("not_in_world".equals(status)) {
                 updateMinecraftStatus("Minecraft: Не в мире");
-                updateConnectionStatus("Компьютер: подключён");
             } else {
-                updateMinecraftStatus("Minecraft: статус неизвестен");
-                updateConnectionStatus("Компьютер: подключён");
+                updateMinecraftStatus(
+                        "Minecraft: статус неизвестен"
+                );
             }
+
+            updateConnectionStatus("Компьютер: подключён");
 
         } catch (Exception e) {
             updateMinecraftStatus("Minecraft: нет связи");
@@ -191,7 +195,9 @@ public class MainActivity extends Activity {
         }
 
         requestButton.setEnabled(false);
-        connectionStatus.setText("Отправляем запрос Windows...");
+        connectionStatus.setText(
+                "Отправляем запрос Windows..."
+        );
 
         executor.execute(() -> {
             try {
@@ -219,40 +225,40 @@ public class MainActivity extends Activity {
                     );
 
                     if ("allowed".equals(decision)) {
-                        updateConnectionStatus(
+                        finishRequest(
                                 "Владелец разрешил запрос."
                         );
                         return;
                     }
 
                     if ("denied".equals(decision)) {
-                        updateConnectionStatus(
+                        finishRequest(
                                 "Владелец отклонил запрос."
                         );
                         return;
                     }
 
                     if ("expired".equals(decision)) {
-                        updateConnectionStatus(
+                        finishRequest(
                                 "Время ожидания истекло."
                         );
                         return;
                     }
 
                     if ("unknown".equals(decision)) {
-                        updateConnectionStatus(
+                        finishRequest(
                                 "Запрос больше не действителен."
                         );
                         return;
                     }
                 }
 
-                updateConnectionStatus(
+                finishRequest(
                         "Нет ответа от Windows. Попробуй снова."
                 );
 
             } catch (Exception e) {
-                updateConnectionStatus(
+                finishRequest(
                         "Ошибка связи. Проверь IP и Wi-Fi."
                 );
             }
@@ -337,6 +343,14 @@ public class MainActivity extends Activity {
     }
 
     private void updateConnectionStatus(String message) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) {
+                connectionStatus.setText(message);
+            }
+        });
+    }
+
+    private void finishRequest(String message) {
         runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) {
                 connectionStatus.setText(message);
