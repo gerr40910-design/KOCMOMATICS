@@ -1,16 +1,18 @@
 package com.kocmomatics.tablet;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import android.text.Editable;
-import android.text.TextWatcher;
+import android.content.SharedPreferences;
+import android.text.InputType;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
@@ -26,10 +28,11 @@ import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
 
-    private TextView connectionStatus;
-    private TextView minecraftStatus;
-    private EditText ipInput;
+    private TextView statusText;
+    private TextView minecraftText;
     private Button requestButton;
+
+    private SharedPreferences preferences;
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
@@ -39,9 +42,17 @@ public class MainActivity extends Activity {
 
     private ScheduledFuture<?> statusTask;
 
+    private String getHost() {
+        return preferences.getString("computer_ip", "");
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        preferences = getSharedPreferences(
+                "kocmomatics_settings", MODE_PRIVATE
+        );
 
         getWindow().setStatusBarColor(Color.rgb(35, 15, 55));
         getWindow().setNavigationBarColor(Color.rgb(20, 10, 30));
@@ -58,61 +69,39 @@ public class MainActivity extends Activity {
         title.setTextSize(30);
         title.setGravity(Gravity.CENTER);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("TABLET CONTROL");
-        subtitle.setTextColor(Color.WHITE);
-        subtitle.setTextSize(14);
-        subtitle.setGravity(Gravity.CENTER);
-
-        ipInput = new EditText(this);
-        ipInput.setSingleLine(true);
-        ipInput.setHint("IP компьютера, например 192.168.1.10");
-        ipInput.setTextColor(Color.WHITE);
-        ipInput.setHintTextColor(Color.LTGRAY);
-
-        connectionStatus = new TextView(this);
-        connectionStatus.setText("Компьютер: не проверен");
-        connectionStatus.setTextColor(Color.LTGRAY);
-        connectionStatus.setTextSize(16);
-        connectionStatus.setGravity(Gravity.CENTER);
-        connectionStatus.setPadding(0, 20, 0, 10);
-
-        minecraftStatus = new TextView(this);
-        minecraftStatus.setText("Minecraft: ожидаем подключения");
-        minecraftStatus.setTextColor(Color.rgb(180, 100, 255));
-        minecraftStatus.setTextSize(18);
-        minecraftStatus.setGravity(Gravity.CENTER);
-        minecraftStatus.setPadding(0, 10, 0, 25);
-
         requestButton = new Button(this);
-        requestButton.setText("Запросить подключение");
+        requestButton.setText("ПОДКЛЮЧИТЬСЯ");
         requestButton.setOnClickListener(v -> requestConnection());
 
+        statusText = new TextView(this);
+        statusText.setText("●");
+        statusText.setTextColor(Color.LTGRAY);
+        statusText.setTextSize(16);
+        statusText.setGravity(Gravity.CENTER);
+        statusText.setPadding(0, 20, 0, 5);
+
+        minecraftText = new TextView(this);
+        minecraftText.setText("");
+        minecraftText.setTextColor(Color.rgb(180, 100, 255));
+        minecraftText.setTextSize(14);
+        minecraftText.setGravity(Gravity.CENTER);
+
+        Button settingsButton = new Button(this);
+        settingsButton.setText("⚙");
+        settingsButton.setTextSize(20);
+        settingsButton.setOnClickListener(v -> openSettings());
+
         layout.addView(title);
-        layout.addView(subtitle);
-        layout.addView(ipInput);
-        layout.addView(connectionStatus);
-        layout.addView(minecraftStatus);
         layout.addView(requestButton);
+        layout.addView(statusText);
+        layout.addView(minecraftText);
+        layout.addView(settingsButton);
 
         setContentView(layout);
 
-        ipInput.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(
-                    CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(
-                    CharSequence s, int start, int before, int count) {
-                startStatusPolling();
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-            }
-        });
+        if (!getHost().isEmpty()) {
+            startStatusPolling();
+        }
     }
 
     private boolean isValidIp(String host) {
@@ -132,8 +121,46 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private void openSettings() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setHint("IP компьютера");
+        input.setText(getHost());
+
+        new AlertDialog.Builder(this)
+                .setTitle("Настройки подключения")
+                .setView(input)
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Сохранить", (dialog, which) -> {
+                    String host = input.getText().toString().trim();
+
+                    if (!isValidIp(host)) {
+                        Toast.makeText(
+                                this,
+                                "Неверный IP-адрес",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        return;
+                    }
+
+                    preferences.edit()
+                            .putString("computer_ip", host)
+                            .apply();
+
+                    startStatusPolling();
+
+                    Toast.makeText(
+                            this,
+                            "Адрес сохранён",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                })
+                .show();
+    }
+
     private void startStatusPolling() {
-        String host = ipInput.getText().toString().trim();
+        String host = getHost();
 
         if (statusTask != null) {
             statusTask.cancel(false);
@@ -141,12 +168,8 @@ public class MainActivity extends Activity {
         }
 
         if (!isValidIp(host)) {
-            minecraftStatus.setText(
-                    "Minecraft: введи IP компьютера"
-            );
-            connectionStatus.setText(
-                    "Компьютер: не проверен"
-            );
+            updateConnectionStatus("●");
+            updateMinecraftStatus("");
             return;
         }
 
@@ -171,33 +194,27 @@ public class MainActivity extends Activity {
             } else if ("not_in_world".equals(status)) {
                 updateMinecraftStatus("Minecraft: Не в мире");
             } else {
-                updateMinecraftStatus(
-                        "Minecraft: статус неизвестен"
-                );
+                updateMinecraftStatus("Minecraft: неизвестно");
             }
 
-            updateConnectionStatus("Компьютер: подключён");
+            updateConnectionStatus("● Подключено");
 
         } catch (Exception e) {
-            updateMinecraftStatus("Minecraft: нет связи");
-            updateConnectionStatus("Компьютер: недоступен");
+            updateConnectionStatus("● Нет связи");
+            updateMinecraftStatus("");
         }
     }
 
     private void requestConnection() {
-        String host = ipInput.getText().toString().trim();
+        String host = getHost();
 
         if (!isValidIp(host)) {
-            connectionStatus.setText(
-                    "Введи правильный IP компьютера"
-            );
+            openSettings();
             return;
         }
 
         requestButton.setEnabled(false);
-        connectionStatus.setText(
-                "Отправляем запрос Windows..."
-        );
+        updateConnectionStatus("Ожидание ответа владельца");
 
         executor.execute(() -> {
             try {
@@ -205,10 +222,6 @@ public class MainActivity extends Activity {
 
                 JSONObject request = sendPost(base + "/request");
                 String requestId = request.getString("request_id");
-
-                updateConnectionStatus(
-                        "Запрос отправлен. Ожидаем владельца..."
-                );
 
                 long deadline =
                         System.currentTimeMillis() + 65000;
@@ -225,42 +238,30 @@ public class MainActivity extends Activity {
                     );
 
                     if ("allowed".equals(decision)) {
-                        finishRequest(
-                                "Владелец разрешил запрос."
-                        );
+                        finishRequest("Владелец разрешил запрос");
                         return;
                     }
 
                     if ("denied".equals(decision)) {
-                        finishRequest(
-                                "Владелец отклонил запрос."
-                        );
+                        finishRequest("Владелец отклонил запрос");
                         return;
                     }
 
                     if ("expired".equals(decision)) {
-                        finishRequest(
-                                "Время ожидания истекло."
-                        );
+                        finishRequest("Время ожидания истекло");
                         return;
                     }
 
                     if ("unknown".equals(decision)) {
-                        finishRequest(
-                                "Запрос больше не действителен."
-                        );
+                        finishRequest("Запрос недействителен");
                         return;
                     }
                 }
 
-                finishRequest(
-                        "Нет ответа от Windows. Попробуй снова."
-                );
+                finishRequest("Нет ответа от компьютера");
 
             } catch (Exception e) {
-                finishRequest(
-                        "Ошибка связи. Проверь IP и Wi-Fi."
-                );
+                finishRequest("Ошибка связи");
             }
         });
     }
@@ -334,18 +335,18 @@ public class MainActivity extends Activity {
         return new JSONObject(result.toString());
     }
 
-    private void updateMinecraftStatus(String message) {
+    private void updateConnectionStatus(String message) {
         runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) {
-                minecraftStatus.setText(message);
+                statusText.setText(message);
             }
         });
     }
 
-    private void updateConnectionStatus(String message) {
+    private void updateMinecraftStatus(String message) {
         runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) {
-                connectionStatus.setText(message);
+                minecraftText.setText(message);
             }
         });
     }
@@ -353,7 +354,7 @@ public class MainActivity extends Activity {
     private void finishRequest(String message) {
         runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) {
-                connectionStatus.setText(message);
+                statusText.setText(message);
                 requestButton.setEnabled(true);
             }
         });
