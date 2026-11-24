@@ -4,7 +4,6 @@ import uuid
 import time
 import queue
 import threading
-import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import tkinter as tk
 
@@ -12,6 +11,7 @@ PORT = 8765
 REQUEST_TIMEOUT = 60
 
 requests_queue = queue.Queue()
+events_queue = queue.Queue()
 lock = threading.Lock()
 decisions = {}
 active_request = None
@@ -31,7 +31,9 @@ def get_lan_ip():
 def make_response(handler, code, data):
     body = json.dumps(data, ensure_ascii=False).encode("utf-8")
     handler.send_response(code)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header(
+        "Content-Type", "application/json; charset=utf-8"
+    )
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
@@ -72,6 +74,33 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global active_request
+
+        if self.path == "/minecraft-event":
+            # Minecraft и Agent должны работать на одном компьютере.
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                make_response(self, 403, {"error": "local only"})
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 1024:
+                    make_response(self, 400, {"error": "invalid size"})
+                    return
+
+                data = json.loads(self.rfile.read(length))
+                event = data.get("event")
+
+                if event not in ("join", "leave"):
+                    make_response(self, 400, {"error": "invalid event"})
+                    return
+
+                events_queue.put(event)
+                print("Minecraft event:", event)
+
+                make_response(self, 200, {"status": "received"})
+            except (ValueError, json.JSONDecodeError):
+                make_response(self, 400, {"error": "invalid JSON"})
+            return
 
         if self.path != "/request":
             make_response(self, 404, {"error": "not found"})
@@ -134,7 +163,6 @@ def show_confirmation(root, request):
 
     with lock:
         item = decisions.get(request_id)
-
         if not item or item["status"] != "pending":
             return
 
@@ -188,11 +216,49 @@ def show_confirmation(root, request):
     window.focus_force()
 
 
+def show_minecraft_event(root, event):
+    window = tk.Toplevel(root)
+    window.title("KOCMOMATICS — Minecraft")
+    window.geometry("350x150")
+    window.resizable(False, False)
+    window.attributes("-topmost", True)
+
+    if event == "join":
+        message = "Minecraft: игрок вошёл в мир."
+    else:
+        message = "Minecraft: игрок покинул мир."
+
+    tk.Label(
+        window,
+        text="KOCMOMATICS",
+        font=("Arial", 17, "bold")
+    ).pack(pady=12)
+
+    tk.Label(
+        window,
+        text=message,
+        font=("Arial", 11)
+    ).pack(pady=8)
+
+    tk.Button(
+        window,
+        text="Закрыть",
+        command=window.destroy
+    ).pack(pady=8)
+
+
 def process_requests(root):
     try:
         while True:
             request = requests_queue.get_nowait()
             show_confirmation(root, request)
+    except queue.Empty:
+        pass
+
+    try:
+        while True:
+            event = events_queue.get_nowait()
+            show_minecraft_event(root, event)
     except queue.Empty:
         pass
 
@@ -218,7 +284,7 @@ def main():
     print("Статус: запущен")
     print("IP компьютера:", get_lan_ip())
     print("Порт:", PORT)
-    print("Ожидание запроса от планшета...")
+    print("Ожидание Minecraft и планшета...")
     print("Для остановки нажми Ctrl+C в этой консоли.")
 
     process_requests(root)
