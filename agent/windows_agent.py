@@ -16,6 +16,8 @@ lock = threading.Lock()
 decisions = {}
 active_request = None
 
+minecraft_status = "not_in_world"
+
 
 def get_lan_ip():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -52,6 +54,16 @@ class AgentHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if self.path == "/minecraft-status":
+            with lock:
+                current_status = minecraft_status
+
+            make_response(self, 200, {
+                "status": "online",
+                "minecraft": current_status
+            })
+            return
+
         if self.path.startswith("/decision?id="):
             request_id = self.path.split("=", 1)[1]
 
@@ -73,10 +85,9 @@ class AgentHandler(BaseHTTPRequestHandler):
         make_response(self, 404, {"error": "not found"})
 
     def do_POST(self):
-        global active_request
+        global active_request, minecraft_status
 
         if self.path == "/minecraft-event":
-            # Minecraft и Agent должны работать на одном компьютере.
             if self.client_address[0] not in ("127.0.0.1", "::1"):
                 make_response(self, 403, {"error": "local only"})
                 return
@@ -93,6 +104,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                 if event not in ("join", "leave"):
                     make_response(self, 400, {"error": "invalid event"})
                     return
+
+                with lock:
+                    if event == "join":
+                        minecraft_status = "in_world"
+                    else:
+                        minecraft_status = "not_in_world"
 
                 events_queue.put(event)
                 print("Minecraft event:", event)
@@ -284,7 +301,7 @@ def main():
     print("Статус: запущен")
     print("IP компьютера:", get_lan_ip())
     print("Порт:", PORT)
-    print("Ожидание Minecraft и планшета...")
+    print("Minecraft status: /minecraft-status")
     print("Для остановки нажми Ctrl+C в этой консоли.")
 
     process_requests(root)
